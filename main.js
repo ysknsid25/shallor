@@ -1,77 +1,195 @@
-const main = () => {
+const GOOGLE_DRIVE_INFO = {
+    TMP_FILENAME: 'tmpProgramList.txt',
+    FOLDER_ID: '1njW0RVO5Vdc0jx4kRKQeb5qv6x7WzXb4'
+}
+
+const main = async () => {
     //リクエストを投げて、番組表を取得する
-    createFile(FILENAME, await getAandGProgarmList());
+    createFile(GOOGLE_DRIVE_INFO.TMP_FILENAME, await getAandGProgarmList());
 
     //ファイルを読み取る
-    squeezeTargetRecord(readFile(FILENAME));
+    console.log(squeezeTargetRecord(readFile(GOOGLE_DRIVE_INFO.TMP_FILENAME)));
+
+    //ファイルを読み取ったら消す
+    deleteTmpFile();
+
 };
 
-const FILENAME = 'programList.txt';
-
 const keywords = {
-    tableTagBegin: '<table',
-    tableTagEnd: '</table>',
-    thTag: '<th',
-    tdTag: '<td',
+    tableTagBegin: '<tbody',
+    tableTagEnd: '</tbody>',
+    tdTagBegin: '<td',
+    tdTagEnd: '</td>',
     tagBegin: '<',
     tagEnd: '>',
-    time: 'time',
+    classBegin: 'class="',
+    classEnd: '"',
     repeat: 'bg-repeat',
+    first: 'bg-f',
+    realtime: 'bg-l',
     rowspanBegin: 'rowspan="',
-    rowspanEnd: '"'
+    rowspanEnd: '"',
+    titleHref: '<a href='
 };
 
 
 /**
  * 番組情報が入っている箇所を特定して、番組情報のみを格納した配列にして返す
+ * TIPS: なるほど。こういう順次系の処理は関数型より命令型のほうが向いてる
  * @param textArr 
  */
 const squeezeTargetRecord = (textArr) => {
 
     let beginFlg = false;
-    let findFirstTh = false;
+    let duringTd = false;
+    let programArr = [];
+    let nowBetweenTdLine = 0;
 
-    
+    let programObj = new Object();
 
-    textArr.filetr((line) => 
-        {
-            if(!beginFlg && findKeyWord(keywords.tableTagBegin, line)){
-                beginFlg = true;
-            }
-            if(beginFlg){
+    const WHAT_LINE_HAS = {
+        DUR_AND_BROADCAST_TYPE: 1,
+        BEGIN_TIME: 3,
+        TITLE: 5,
+        PERSONALITY: 9
+    }
 
-            }
-            if(findKeyWord(keywords.tableTagEnd, line)){
-                return ;
-            }else{
-                continue;
-            }
+    for(let i=0; i<textArr.length; i++){
 
+        const line = textArr[i];
+
+        //tbodyの最後が来たら、抜ける
+        if(findKeyWord(keywords.tableTagEnd, line)){
+            break;
         }
-    );
+        //<tbodyタグを見つけたら、取り込み開始
+        if(!beginFlg && findKeyWord(keywords.tableTagBegin, line)){
+            beginFlg = true;
+        }
+        //<tbodyタグが見つかるまではスキップ
+        if(!beginFlg){
+            continue;
+        }
+        //TDタグの始まりを検知
+        if(findKeyWord(keywords.tdTagBegin, line)){
+            duringTd = true;
+        }
+        //TDの間に来たら、順番に値を取得していく
+        if(duringTd){
+            ++nowBetweenTdLine;
+            if(WHAT_LINE_HAS.DUR_AND_BROADCAST_TYPE == nowBetweenTdLine){
+                const typeStr = getInnerHTML(line, keywords.classBegin, keywords.classBegin.length, keywords.classEnd);
+                programObj.dur = getDurTime(line);
+                programObj.isRepeat = isRepeat(typeStr);
+                programObj.isRealTime = isRealtime(typeStr);
+                programObj.isFirst = isFirst(typeStr);
+            }else if(WHAT_LINE_HAS.BEGIN_TIME == nowBetweenTdLine){
+                const begintime = getBeginTime(line);
+                programObj.beginHour = Number(begintime.substring(0, 2));
+                programObj.beginMinute = Number(begintime.substring(3, 5));
+                programObj.beginTime = zeroComplete(programObj.beginHour) + '' + zeroComplete(programObj.beginMinute);
+                programObj.endHour = getEndHour(programObj.beginHour, programObj.dur);
+                programObj.endMinute = getEndMinute(programObj.beginMinute, programObj.dur);
+                programObj.endTime = zeroComplete(programObj.endHour) + '' + zeroComplete(programObj.endMinute);
+            }else if(WHAT_LINE_HAS.TITLE == nowBetweenTdLine){
+                programObj.title = getTitle(line);
+            }else if(WHAT_LINE_HAS.PERSONALITY == nowBetweenTdLine){
+                programObj.personality = line.trim();
+            }
+        }
+        //TDタグの終わりに来たら、オブジェクトを配列にプッシュして、初期化
+        //TDの間フラグをOFFにして、カウンターをクリアする
+        if(findKeyWord(keywords.tdTagEnd, line)){
+            programArr.push(programObj);
+            programObj = new Object();
+            duringTd = false;
+            nowBetweenTdLine = 0;
+        }
+    }
+
+    return programArr;
+
 };
 
-const findKeyWord = (keyword, line) =>  line.indexOf(keyword) > 0;
+//キーワードが含まれるか検索
+const findKeyWord = (keyword, line) =>  line.indexOf(keyword) > -1;
 
-const getInnerHTML = (line, beginSign, keywordLength=1, endSign) => {
+//HTMLの中身を取得
+const getInnerHTML = (line, beginSign, keywordLength, endSign) => {
     const beginPos = line.indexOf(beginSign)+keywordLength;
     let substrLine = line.substring(beginPos);
     const endPos = substrLine.indexOf(endSign);
     return substrLine.substring(0, endPos);
 };
 
+//放送時間を取得する
+const getDurTime = (line) => {
+    return getInnerHTML(line, keywords.rowspanBegin, keywords.rowspanBegin.length, keywords.rowspanEnd);
+};
+
+//再放送か
+const isRepeat = (broadCastType) => keywords.repeat == broadCastType;
+
+//生放送か
+const isRealtime = (broadCastType) => keywords.realtime == broadCastType;
+
+//初回放送か
+const isFirst = (broadCastType) => keywords.first == broadCastType;
+
+//0埋めする
+const zeroComplete = (num) => {
+    
+    if(0 <= num && num < 10){
+        return '0' + num;
+    }
+
+    return num;
+};
+
+//開始時刻を取得する
+const getBeginTime = (line) => getDateTime(line.substring(0, 5));
+
+//終了時刻を取得する
+const getEndHour = (beginHour, dur) => {
+
+    let endHour = beginHour;
+    if(dur < 60){
+        return endHour;
+    }
+
+    endHour = Math.floor(dur/60) + beginHour;
+    if(endHour > 24){
+        return endHour - 24;
+    }
+
+    return endHour;
+};
+
+//終了分を取得する
+const getEndMinute = (beginMinute, dur) => {
+
+    const endMinute = beginMinute;
+    if(dur >= 60){
+        return endMinute;
+    }
+
+    return zeroComplete(dur);
+};
+
+//タイトルを取得する
+const getTitle = (line) => {
+
+    if(findKeyWord(keywords.titleHref, line)){
+        return getInnerHTML(line, keywords.tagEnd, keywords.tagEnd.length, keywords.tagBegin);
+    }
+    return line.trim();
+};
+
 /**
  * 番組表をテキスト形式で受け取って、配列に格納して返す
  *  @param Array
  */
-const getAandGProgarmList = async () => {
-
-    const API_URL = 'https://www.agqr.jp/timetable/streaming.html'; // リクエスト先URL
-
-    const text = UrlFetchApp.fetch(API_URL).getContentText();
-    return text;
-
-};
+const getAandGProgarmList = async () =>  UrlFetchApp.fetch('https://www.agqr.jp/timetable/streaming.html').getContentText().split('</span>\n</div>').join('</span></div>');
 
 /**
  * ファイル書き出し
@@ -80,23 +198,23 @@ const getAandGProgarmList = async () => {
  */
 const createFile = (fileName, content) => {  
 
-    const folder = DriveApp.getFolderById('1njW0RVO5Vdc0jx4kRKQeb5qv6x7WzXb4');
+    const folder = DriveApp.getFolderById(GOOGLE_DRIVE_INFO.FOLDER_ID);
     const contentType = 'text/plain';
     const charset = 'utf-8';
-
-    // Blob を作成する
     const file = Utilities.newBlob('', contentType, fileName).setDataFromString(content, charset);
 
-    // ファイルに保存
     folder.createFile(file);
 };
+
+//tmpファイルを削除する
+const deleteTmpFile = () => DriveApp.getFilesByName(GOOGLE_DRIVE_INFO.TMP_FILENAME).next().setTrashed(true);
 
 /**
  * ファイルを一行ずつ読み取り、配列に放り込んで返す
  * @param Array
  */
 const readFile = (fileName) => 
-    DriveApp.getFolderById('1njW0RVO5Vdc0jx4kRKQeb5qv6x7WzXb4')
+    DriveApp.getFolderById(GOOGLE_DRIVE_INFO.FOLDER_ID)
     .getFilesByName(fileName)
     .next()
     .getBlob()
@@ -108,7 +226,6 @@ const readFile = (fileName) =>
 //日付→YYYYMMDD
 //時刻→HHMi
 const getDateTime = (dateTime, isDate = false) => {
-
     const hourOrMonth = dateTime.substring(0, 2);
     const minuteOrDay = dateTime.substring(3, 5);
 
@@ -127,5 +244,4 @@ const getDateTime = (dateTime, isDate = false) => {
     }
 
     return hourOrMonth + minuteOrDay;
-
 };
