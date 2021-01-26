@@ -1,20 +1,37 @@
 const GOOGLE_DRIVE_INFO = {
+    DELETE_FILENAME: '.json',
     TMP_FILENAME: 'tmpProgramList.txt',
     FOLDER_ID: '1njW0RVO5Vdc0jx4kRKQeb5qv6x7WzXb4'
 }
 
 const main = async () => {
+
+    //前回までのJSONファイルを削除する
+    //七日分のでーたを消す
+    getJSONfileNmInWeek().map((beforeDay) => deleteTmpFile(beforeDay + GOOGLE_DRIVE_INFO.DELETE_FILENAME));
+
     //リクエストを投げて、番組表を取得する
     createFile(GOOGLE_DRIVE_INFO.TMP_FILENAME, await getAandGProgarmList());
 
     //ファイルを読み取る
-    console.log(squeezeTargetRecord(readFile(GOOGLE_DRIVE_INFO.TMP_FILENAME)));
+    outputJSONfile(distributeProgramData(squeezeTargetRecord(readFile(GOOGLE_DRIVE_INFO.TMP_FILENAME))));
 
     //ファイルを読み取ったら消す
-    deleteTmpFile();
+    deleteTmpFile(GOOGLE_DRIVE_INFO.TMP_FILENAME);
 
 };
 
+//過去一週間分のJSONファイル名を取得する
+const getJSONfileNmInWeek = () => {
+    let fileNmArr = [];
+    const WEEKDAY = 7;
+    for(let dayBefore=WEEKDAY; dayBefore>0; dayBefore--){
+        fileNmArr.push(getDate(-dayBefore));
+    }
+    return fileNmArr;
+};
+
+//データ取得のための目印
 const keywords = {
     tableTagBegin: '<tbody',
     tableTagEnd: '</tbody>',
@@ -86,11 +103,11 @@ const squeezeTargetRecord = (textArr) => {
             }else if(WHAT_LINE_HAS.BEGIN_TIME == nowBetweenTdLine){
                 const begintime = getBeginTime(line);
                 programObj.beginHour = Number(begintime.substring(0, 2));
-                programObj.beginMinute = Number(begintime.substring(3, 5));
+                programObj.beginMinute = Number(begintime.substring(2, 4));
                 programObj.beginTime = zeroComplete(programObj.beginHour) + '' + zeroComplete(programObj.beginMinute);
-                programObj.endHour = getEndHour(programObj.beginHour, programObj.dur);
-                programObj.endMinute = getEndMinute(programObj.beginMinute, programObj.dur);
-                programObj.endTime = zeroComplete(programObj.endHour) + '' + zeroComplete(programObj.endMinute);
+                programObj.endTime = getEndTime(programObj.beginHour, programObj.beginMinute, programObj.dur);
+                programObj.endHour = Number(programObj.endTime.substring(0, 2));
+                programObj.endMinute = Number(programObj.endTime.substring(2, 4));
             }else if(WHAT_LINE_HAS.TITLE == nowBetweenTdLine){
                 programObj.title = getTitle(line);
             }else if(WHAT_LINE_HAS.PERSONALITY == nowBetweenTdLine){
@@ -150,30 +167,26 @@ const zeroComplete = (num) => {
 const getBeginTime = (line) => getDateTime(line.substring(0, 5));
 
 //終了時刻を取得する
-const getEndHour = (beginHour, dur) => {
+const getEndTime = (beginHour, beginMinute, dur) => {
 
-    let endHour = beginHour;
+    let endHour = Number(beginHour);
+    let endMinute = Number(beginMinute);
+
     if(dur < 60){
-        return endHour;
+        endMinute = endMinute + Number(dur);
+    }else if(dur == 60){
+        endHour = endHour + 1;
+    }else if(dur > 60){
+        endHour = endHour + (Math.floor(dur/60)); //放送時間(h)
+        endMinute = endMinute + (dur%60); //放送時間(m)
     }
 
-    endHour = Math.floor(dur/60) + beginHour;
-    if(endHour > 24){
-        return endHour - 24;
+    if(endMinute == 60){
+        endHour = endHour + 1;
+        endMinute = 0;
     }
 
-    return endHour;
-};
-
-//終了分を取得する
-const getEndMinute = (beginMinute, dur) => {
-
-    const endMinute = beginMinute;
-    if(dur >= 60){
-        return endMinute;
-    }
-
-    return zeroComplete(dur);
+    return zeroComplete(endHour) + '' + zeroComplete(endMinute);
 };
 
 //タイトルを取得する
@@ -207,7 +220,7 @@ const createFile = (fileName, content) => {
 };
 
 //tmpファイルを削除する
-const deleteTmpFile = () => DriveApp.getFilesByName(GOOGLE_DRIVE_INFO.TMP_FILENAME).next().setTrashed(true);
+const deleteTmpFile = (fileName) => DriveApp.getFilesByName(fileName).next().setTrashed(true);
 
 /**
  * ファイルを一行ずつ読み取り、配列に放り込んで返す
@@ -244,4 +257,99 @@ const getDateTime = (dateTime, isDate = false) => {
     }
 
     return hourOrMonth + minuteOrDay;
+};
+
+//各曜日に対応する番組データを振り分ける
+const distributeProgramData = (allProgramsArr) => {
+
+    let firstDayProgramArr = [allProgramsArr[0]];
+    let secondDayProgramArr = [allProgramsArr[1]];
+    let thirdDayProgramArr = [allProgramsArr[2]];
+    let fourthDayProgramArr = [allProgramsArr[3]];
+    let fifthDayProgramArr = [allProgramsArr[4]];
+    let sixthDayProgramArr = [allProgramsArr[5]];
+    let seventhDayProgramArr = [allProgramsArr[6]];
+    let programEveryDay = [];
+
+    for(let i=7; i<allProgramsArr.length; i++){
+        const programData = allProgramsArr[i].beginTime;
+        const firstDayEndTime = firstDayProgramArr[firstDayProgramArr.length - 1].endTime;
+        const secondDayEndTime = secondDayProgramArr[secondDayProgramArr.length - 1].endTime;
+        const thirdDayEndTime = thirdDayProgramArr[thirdDayProgramArr.length - 1].endTime;
+        const fourthDayEndTime = fourthDayProgramArr[fourthDayProgramArr.length - 1].endTime;
+        const fifthDayEndTime = fifthDayProgramArr[fifthDayProgramArr.length - 1].endTime;
+        const sixthDayEndTime = sixthDayProgramArr[sixthDayProgramArr.length - 1].endTime;
+        const seventhDayEndTime = seventhDayProgramArr[seventhDayProgramArr.length - 1].endTime;
+
+        if(programData == firstDayEndTime){
+            firstDayProgramArr.push(allProgramsArr[i]);
+        }else if(programData == secondDayEndTime){
+            secondDayProgramArr.push(allProgramsArr[i]);
+        }else if(programData == thirdDayEndTime){
+            thirdDayProgramArr.push(allProgramsArr[i]);
+        }else if(programData == fourthDayEndTime){
+            fourthDayProgramArr.push(allProgramsArr[i]);
+        }else if(programData == fifthDayEndTime){
+            fifthDayProgramArr.push(allProgramsArr[i]);
+        }else if(programData == sixthDayEndTime){
+            sixthDayProgramArr.push(allProgramsArr[i]);
+        }else if(programData == seventhDayEndTime){
+            seventhDayProgramArr.push(allProgramsArr[i]);
+        }
+    }
+
+    programEveryDay.push(firstDayProgramArr);
+    programEveryDay.push(secondDayProgramArr);
+    programEveryDay.push(thirdDayProgramArr);
+    programEveryDay.push(fourthDayProgramArr);
+    programEveryDay.push(fifthDayProgramArr);
+    programEveryDay.push(sixthDayProgramArr);
+    programEveryDay.push(seventhDayProgramArr);
+
+    return programEveryDay;
+
+};
+
+//日別の番組表データごとにJSONファイルに吐き出す
+const outputJSONfile = (programEveryDay) => {
+
+    //データは月曜日が0番目に入って来るので、
+    //今日の曜日を基準に日付を計算する
+    const howManyDaysLaterByToday = getDayMap();
+    let howManyDaysLater = -1;
+    programEveryDay.map((aDayProgramDatas) => (
+            createFile(getDate(howManyDaysLaterByToday[++howManyDaysLater]) + '.json', JSON.stringify(aDayProgramDatas))
+    ));
+
+};
+
+//日付を加算した値を返す。デフォルトの場合は当日を返す
+const getDate = (howManyDaysLater=0) => {
+    const dt = new Date();
+    dt.setDate(dt.getDate() + howManyDaysLater);
+    return dt.getFullYear() + '' + zeroComplete((dt.getMonth() + 1)) + '' + zeroComplete(dt.getDate());
+};
+
+//A&Gからのデータは、0番目は常に月曜→日曜の並びになるため、
+//取得時の曜日によって、月曜日が何日かを算出する必要がある
+const getDayMap = () => {
+
+    //実行時の曜日
+    const today = new Date().getDay();
+
+    //今日の曜日に対して、各曜日にいくつ＋する必要があるか
+    //インデックスに曜日を対応させているので、0が日曜日
+    //中の配列は、0が月曜日になる
+    const howManyDaysLaterByToday = [
+        [1, 2, 3, 4, 5, 6, 0],
+        [0, 1, 2, 3, 4, 5, 6],
+        [6, 0, 1, 2, 3, 4, 5],
+        [5, 6, 0, 1, 2, 3, 4],
+        [4, 5, 6, 0, 1, 2, 3],
+        [3, 4, 5, 6, 0, 1, 2],
+        [2, 3, 4, 5, 6, 0, 1]
+    ];
+
+    return howManyDaysLaterByToday[today];
+
 };
