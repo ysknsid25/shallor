@@ -1,7 +1,7 @@
 const GOOGLE_DRIVE_INFO = {
-    DELETE_FILENAME: '',
-    TMP_FILENAME: '',
-    FOLDER_ID: ''
+    DELETE_FILENAME: '.json',
+    TMP_FILENAME: 'tmpProgramList.txt',
+    FOLDER_ID: '1njW0RVO5Vdc0jx4kRKQeb5qv6x7WzXb4'
 }
 
 const main = async () => {
@@ -117,7 +117,7 @@ const squeezeTargetRecord = (textArr) => {
         //TDタグの終わりに来たら、オブジェクトを配列にプッシュして、初期化
         //TDの間フラグをOFFにして、カウンターをクリアする
         if(findKeyWord(keywords.tdTagEnd, line)){
-            programArr.push(programObj);
+            programArr.push(procWhenAnimesu(programObj));
             programObj = new Object();
             duringTd = false;
             nowBetweenTdLine = 0;
@@ -127,6 +127,19 @@ const squeezeTargetRecord = (textArr) => {
     return programArr;
 
 };
+
+//アニメージュだけテキストの放送時間とcolspanの放送時間が異なるので、
+//別処理で調整する(マジ許さん)
+const procWhenAnimesu = (programObj) => {
+    if(programObj.title == 'ラジオアニメージュ'){
+        programObj.dur = 30; //29ではなく30に調整
+        programObj.endTime = getEndTime(programObj.beginHour, programObj.beginMinute, programObj.dur);
+        programObj.endHour = Number(programObj.endTime.substring(0, 2));
+        programObj.endMinute = Number(programObj.endTime.substring(2, 4));
+    }
+    return programObj;
+}; 
+
 
 //キーワードが含まれるか検索
 const findKeyWord = (keyword, line) =>  line.indexOf(keyword) > -1;
