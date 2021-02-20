@@ -1,7 +1,7 @@
 const GOOGLE_DRIVE_INFO = {
     DELETE_FILENAME: '.json',
     TMP_FILENAME: 'tmpProgramList.txt',
-    FOLDER_ID: '1njW0RVO5Vdc0jx4kRKQeb5qv6x7WzXb4'
+    FOLDER_ID: ''
 }
 
 const main = async () => {
